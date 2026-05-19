@@ -1,8 +1,7 @@
 """Unit tests for nta_gtfs.StaticGtfsClient.
 
-Covers all acceptance criteria from specs/002-library-split/spec.md
-(Test strategy — New tests required, item 2). All GTFS data is built
-as in-memory zip bytes; no disk I/O and no live HTTP calls are made.
+All GTFS data is built as in-memory zip bytes; no disk I/O and no live
+HTTP calls are made.
 """
 
 import io
