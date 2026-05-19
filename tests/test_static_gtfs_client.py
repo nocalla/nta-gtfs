@@ -177,6 +177,7 @@ def _make_session(*, status: int = 200, body: bytes = b"") -> MagicMock:
     mock_response = MagicMock()
     mock_response.ok = status < 400
     mock_response.status = status
+    mock_response.content_length = None
     mock_response.read = AsyncMock(return_value=body)
 
     mock_session = MagicMock()
@@ -874,3 +875,48 @@ async def test_custom_refresh_hours_not_triggered_when_fresh() -> None:
         await client.async_refresh_if_stale()
 
     mock_load.assert_not_called()
+
+
+# ===========================================================================
+# HTTP URL raises ValueError at construction (issue #4)
+# ===========================================================================
+
+
+def test_http_url_raises_value_error() -> None:
+    """StaticGtfsClient raises ValueError when static_gtfs_url uses http://."""
+    session = MagicMock()
+    with pytest.raises(ValueError, match="HTTPS"):
+        StaticGtfsClient("http://example.com/gtfs.zip", session)
+
+
+# ===========================================================================
+# Response size limit (issue #5)
+# ===========================================================================
+
+
+async def test_download_exceeding_limit_raises_load_error() -> None:
+    """async_load raises StaticGtfsLoadError when response exceeds max_download_bytes."""
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    # Set limit below the actual zip size
+    client = StaticGtfsClient(_DUMMY_URL, session, max_download_bytes=1)
+
+    with pytest.raises(StaticGtfsLoadError, match="too large"):
+        await client.async_load()
+
+
+# ===========================================================================
+# ScheduledDeparture.route_name is str not None (issue #8)
+# ===========================================================================
+
+
+async def test_scheduled_departure_route_name_is_str() -> None:
+    """ScheduledDeparture.route_name is always a str, never None."""
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    results = client.get_scheduled_departures(_STOP_A, _ROUTE_46A, None, None, _MONDAY)
+    assert len(results) > 0
+    assert all(isinstance(r.route_name, str) for r in results)
