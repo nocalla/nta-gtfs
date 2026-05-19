@@ -1,8 +1,7 @@
 """Unit tests for GtfsRtClient.
 
 All HTTP interactions are mocked via ``unittest.mock`` — no live network calls
-are made.  Each test maps to one or more acceptance criteria from
-``specs/002-library-split/spec.md`` "New tests required item 1".
+are made.
 """
 
 from __future__ import annotations
