@@ -1,5 +1,12 @@
 """NTA GTFS async client library."""
 
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("python-nta-gtfs")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 from nta_gtfs.exceptions import (
     GtfsRtAuthError,
     GtfsRtFetchError,
@@ -21,4 +28,5 @@ __all__ = [
     "StaticGtfsLoadError",
     "StopTimeUpdate",
     "TripUpdate",
+    "__version__",
 ]
