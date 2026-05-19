@@ -34,7 +34,7 @@ class ScheduledDeparture(NamedTuple):
 
     trip_id: str
     departure_time: str
-    route_name: str | None
+    route_name: str
 
 
 class StaticGtfsClient:
@@ -50,18 +50,34 @@ class StaticGtfsClient:
         static_gtfs_url: str,
         session: aiohttp.ClientSession,
         refresh_hours: int = 24,
+        max_download_bytes: int = 200 * 1024 * 1024,
     ) -> None:
         """Initialise the client.
 
         Args:
-            static_gtfs_url: URL of the static GTFS zip to download.
+            static_gtfs_url: URL of the static GTFS zip to download.  Must use
+                the ``https://`` scheme; an ``http://`` URL raises
+                ``ValueError``.
             session: Caller-supplied aiohttp client session used for downloads.
             refresh_hours: Age threshold in hours after which
                 ``async_refresh_if_stale`` triggers a reload.
+            max_download_bytes: Maximum permitted response body size in bytes.
+                Defaults to 200 MiB.  ``async_load`` raises
+                ``StaticGtfsLoadError`` if the Content-Length header or the
+                actual downloaded body exceeds this limit.
+
+        Raises:
+            ValueError: If ``static_gtfs_url`` does not start with
+                ``https://``.
         """
         self._url = static_gtfs_url
         self._session = session
         self._refresh_hours = refresh_hours
+        self._max_download_bytes = max_download_bytes
+        if not static_gtfs_url.startswith("https://"):
+            raise ValueError(
+                f"static_gtfs_url must use HTTPS; got: {static_gtfs_url!r}"
+            )
         self._available: bool = False
         self._loaded_at: datetime | None = None
 
@@ -118,7 +134,18 @@ class StaticGtfsClient:
                         f"Static GTFS download failed: HTTP {resp.status}"
                         f" from {self._url}"
                     )
+                content_length = resp.content_length
+                if content_length is not None and content_length > self._max_download_bytes:
+                    raise StaticGtfsLoadError(
+                        f"Static GTFS response too large: {content_length} bytes "
+                        f"exceeds limit of {self._max_download_bytes} bytes"
+                    )
                 content = await resp.read()
+                if len(content) > self._max_download_bytes:
+                    raise StaticGtfsLoadError(
+                        f"Static GTFS response too large: {len(content)} bytes "
+                        f"exceeds limit of {self._max_download_bytes} bytes"
+                    )
         except aiohttp.ClientError as exc:
             raise StaticGtfsLoadError(
                 f"Static GTFS download error for {self._url}: {exc}"
