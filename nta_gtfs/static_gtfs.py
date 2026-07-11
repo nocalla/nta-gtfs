@@ -135,7 +135,10 @@ class StaticGtfsClient:
                         f" from {self._url}"
                     )
                 content_length = resp.content_length
-                if content_length is not None and content_length > self._max_download_bytes:
+                if (
+                    content_length is not None
+                    and content_length > self._max_download_bytes
+                ):
                     raise StaticGtfsLoadError(
                         f"Static GTFS response too large: {content_length} bytes "
                         f"exceeds limit of {self._max_download_bytes} bytes"

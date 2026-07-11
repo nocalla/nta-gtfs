@@ -29,7 +29,7 @@ dependencies = [
 "Source Code" = "https://github.com/nocalla/python-nta-gtfs"
 "Bug Tracker" = "https://github.com/nocalla/python-nta-gtfs/issues"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",

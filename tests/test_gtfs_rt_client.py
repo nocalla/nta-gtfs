@@ -536,6 +536,7 @@ async def test_integer_delay_zero_stored_as_zero_not_none() -> None:
 # Test — HTTP URL raises ValueError at construction time (issue #4)
 # ---------------------------------------------------------------------------
 
+
 def test_http_url_raises_value_error() -> None:
     """GtfsRtClient raises ValueError when feed_url uses http:// scheme."""
     session = MagicMock(spec=aiohttp.ClientSession)
@@ -550,6 +551,7 @@ def test_http_url_raises_value_error() -> None:
 # ---------------------------------------------------------------------------
 # Test — __repr__ does not expose the API key (issue #9)
 # ---------------------------------------------------------------------------
+
 
 def test_repr_omits_api_key() -> None:
     """repr(client) contains the feed URL but not the API key value."""

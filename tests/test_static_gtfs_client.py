@@ -894,7 +894,7 @@ def test_http_url_raises_value_error() -> None:
 
 
 async def test_download_exceeding_limit_raises_load_error() -> None:
-    """async_load raises StaticGtfsLoadError when response exceeds max_download_bytes."""
+    """async_load raises StaticGtfsLoadError when the body exceeds the limit."""
     zip_bytes = _make_gtfs_zip()
     session = _make_session(status=200, body=zip_bytes)
     # Set limit below the actual zip size
