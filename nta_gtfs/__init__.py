@@ -3,7 +3,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("python-nta-gtfs")
+    __version__ = version("nta-gtfs")
 except PackageNotFoundError:
     __version__ = "unknown"
 

@@ -1,17 +1,17 @@
-# python-nta-gtfs
+# nta-gtfs
 
 Async Python client for the Irish National Transport Authority (NTA) GTFS feeds.
 
 ## What it does
 
-`python-nta-gtfs` provides two async clients for working with NTA transit data. `GtfsRtClient` fetches and parses real-time trip updates from the NTA GTFS-RT protobuf feed, returning typed dataclass objects for each trip and its stop-level delay information. `StaticGtfsClient` downloads the static GTFS schedule zip, parses it entirely in memory, and exposes synchronous queries to look up scheduled departures for a given stop, route, date, and direction.
+`nta-gtfs` provides two async clients for working with NTA transit data. `GtfsRtClient` fetches and parses real-time trip updates from the NTA GTFS-RT protobuf feed, returning typed dataclass objects for each trip and its stop-level delay information. `StaticGtfsClient` downloads the static GTFS schedule zip, parses it entirely in memory, and exposes synchronous queries to look up scheduled departures for a given stop, route, date, and direction.
 
 Both clients accept a caller-supplied `aiohttp.ClientSession` and raise library-specific exceptions on all error conditions. The library is under active development.
 
 ## Installation
 
 ```
-pip install python-nta-gtfs
+pip install nta-gtfs
 ```
 
 ## Prerequisites
