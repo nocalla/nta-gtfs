@@ -27,8 +27,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Source Code" = "https://github.com/nocalla/python-nta-gtfs"
-"Bug Tracker" = "https://github.com/nocalla/python-nta-gtfs/issues"
+"Source Code" = "https://github.com/nocalla/nta-gtfs"
+"Bug Tracker" = "https://github.com/nocalla/nta-gtfs/issues"
 
 [dependency-groups]
 dev = [

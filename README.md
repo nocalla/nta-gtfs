@@ -45,8 +45,8 @@ For complete, runnable programs see the [`examples/`](examples/) directory.
 The scripts in `examples/` query the live NTA API. To run them locally:
 
 ```bash
-git clone https://github.com/nocalla/python-nta-gtfs.git
-cd python-nta-gtfs
+git clone https://github.com/nocalla/nta-gtfs.git
+cd nta-gtfs
 uv sync
 
 # API key from https://developer.nationaltransport.ie/
