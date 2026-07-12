@@ -75,7 +75,11 @@ async def main() -> int:
 
     print(f"Downloading and parsing static GTFS from {static_url} ...")
     async with aiohttp.ClientSession() as session:
-        client = StaticGtfsClient(static_gtfs_url=static_url, session=session)
+        client = StaticGtfsClient(
+            static_gtfs_url=static_url,
+            session=session,
+            stop_ids={args.stop_id},
+        )
         await client.async_load()
 
     departures = client.get_scheduled_departures(

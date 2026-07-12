@@ -4,7 +4,7 @@ Async Python client for the Irish National Transport Authority (NTA) GTFS feeds.
 
 ## What it does
 
-`nta-gtfs` provides two async clients for working with NTA transit data. `GtfsRtClient` fetches and parses real-time trip updates from the NTA GTFS-RT protobuf feed, returning typed dataclass objects for each trip and its stop-level delay information. `StaticGtfsClient` downloads the static GTFS schedule zip, parses it entirely in memory, and exposes synchronous queries to look up scheduled departures for a given stop, route, date, and direction.
+`nta-gtfs` provides two async clients for working with NTA transit data. `GtfsRtClient` fetches and parses real-time trip updates from the NTA GTFS-RT protobuf feed, returning typed dataclass objects for each trip and its stop-level delay information. `StaticGtfsClient` streams the static GTFS schedule zip to a temporary file, parses it row-by-row, and exposes synchronous queries to look up scheduled departures for a given stop, route, date, and direction. Pass `stop_ids` to index only the stops you care about — on the nationwide NTA feed this cuts memory use by an order of magnitude.
 
 Both clients accept a caller-supplied `aiohttp.ClientSession` and raise library-specific exceptions on all error conditions. The library is under active development.
 
@@ -28,7 +28,10 @@ Both clients take a caller-supplied `aiohttp.ClientSession` — the library neve
 client = GtfsRtClient(feed_url=FEED_URL, api_key=API_KEY, session=session)
 updates = await client.async_fetch_trip_updates()  # -> list[TripUpdate]
 
-client = StaticGtfsClient(static_gtfs_url=STATIC_URL, session=session)
+client = StaticGtfsClient(
+    static_gtfs_url=STATIC_URL, session=session,
+    stop_ids={"8250DB001234"},  # optional: index only these stops (saves memory)
+)
 await client.async_load()  # first use; async_refresh_if_stale() on later runs
 departures = client.get_scheduled_departures(
     stop_id="8250DB001234", route_id="46A", direction_id=0,
@@ -109,7 +112,9 @@ Dataclass representing a single stop-level real-time update.
 | `arrival_time` | `int \| None` | Absolute arrival time as a POSIX timestamp. |
 | `departure_time` | `int \| None` | Absolute departure time as a POSIX timestamp. |
 
-### `StaticGtfsClient(static_gtfs_url, session, refresh_hours=24)`
+### `StaticGtfsClient(static_gtfs_url, session, refresh_hours=24, max_download_bytes=200 MiB, stop_ids=None)`
+
+`stop_ids` restricts the departure index to the given GTFS stop IDs; queries for any other stop return `[]`. Leave it as `None` to index every stop in the feed (uses far more memory on large feeds).
 
 | Method / Property | Returns | Description |
 |---|---|---|

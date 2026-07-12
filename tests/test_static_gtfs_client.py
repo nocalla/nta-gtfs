@@ -1,11 +1,12 @@
 """Unit tests for nta_gtfs.StaticGtfsClient.
 
-All GTFS data is built as in-memory zip bytes; no disk I/O and no live
-HTTP calls are made.
+All GTFS data is built as in-memory zip bytes and no live HTTP calls are
+made; the client itself spools downloads to an anonymous temporary file.
 """
 
 import io
 import zipfile
+from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -167,7 +168,7 @@ def _make_session(*, status: int = 200, body: bytes = b"") -> MagicMock:
 
     Args:
         status: HTTP status code the mocked response will report.
-        body: Bytes returned by ``response.read()``.
+        body: Bytes streamed by ``response.content.iter_chunked()``.
 
     Returns:
         MagicMock whose ``.get(url)`` is an async context manager yielding a
@@ -177,7 +178,30 @@ def _make_session(*, status: int = 200, body: bytes = b"") -> MagicMock:
     mock_response.ok = status < 400
     mock_response.status = status
     mock_response.content_length = None
-    mock_response.read = AsyncMock(return_value=body)
+
+    def _iter_chunked(chunk_size: int) -> AsyncIterator[bytes]:
+        """Mimic ``aiohttp.StreamReader.iter_chunked`` over the fixture body.
+
+        Args:
+            chunk_size: Maximum size of each yielded chunk in bytes.
+
+        Returns:
+            Async iterator over successive ``chunk_size`` slices of ``body``.
+        """
+
+        async def _gen() -> AsyncIterator[bytes]:
+            """Yield successive chunks of the fixture body.
+
+            Yields:
+                Chunks of ``body`` at most ``chunk_size`` bytes long.
+            """
+            for i in range(0, len(body), chunk_size):
+                yield body[i : i + chunk_size]
+
+        return _gen()
+
+    mock_response.content = MagicMock()
+    mock_response.content.iter_chunked = _iter_chunked
 
     mock_session = MagicMock()
     mock_session.get = MagicMock(
@@ -874,6 +898,76 @@ async def test_custom_refresh_hours_not_triggered_when_fresh() -> None:
         await client.async_refresh_if_stale()
 
     mock_load.assert_not_called()
+
+
+# ===========================================================================
+# stop_ids filter (issue #20)
+# ===========================================================================
+
+
+async def test_stop_ids_filter_returns_departures_for_configured_stop() -> None:
+    """With stop_ids={STOP_A}, the configured stop returns departures as normal."""
+    # Arrange
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session, stop_ids={_STOP_A})
+    await client.async_load()
+
+    # Act
+    results = client.get_scheduled_departures(_STOP_A, _ROUTE_46A, None, None, _MONDAY)
+
+    # Assert — identical to what an unfiltered client returns for STOP_A
+    assert [r.departure_time for r in results] == ["08:00", "09:00", "10:00"]
+
+
+async def test_stop_ids_filter_excludes_unconfigured_stop() -> None:
+    """With stop_ids={STOP_A}, a stop outside the filter returns no departures."""
+    # Arrange — STOP_B has departures in the baseline zip but is not configured
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session, stop_ids={_STOP_A})
+    await client.async_load()
+
+    # Act
+    results = client.get_scheduled_departures(_STOP_B, _ROUTE_46A, None, None, _MONDAY)
+
+    # Assert
+    assert results == []
+
+
+async def test_stop_ids_accepts_any_iterable() -> None:
+    """stop_ids passed as a list behaves the same as a set."""
+    # Arrange
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session, stop_ids=[_STOP_A, _STOP_B])
+    await client.async_load()
+
+    # Act
+    results_a = client.get_scheduled_departures(
+        _STOP_A, _ROUTE_46A, None, None, _MONDAY
+    )
+    results_b = client.get_scheduled_departures(
+        _STOP_B, _ROUTE_46A, None, None, _MONDAY
+    )
+
+    # Assert — both configured stops return data
+    assert len(results_a) > 0
+    assert len(results_b) > 0
+
+
+async def test_stop_ids_default_none_indexes_all_stops() -> None:
+    """Default stop_ids=None keeps every stop queryable (backwards compatible)."""
+    # Arrange
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    # Act / Assert
+    for stop in (_STOP_A, _STOP_B):
+        results = client.get_scheduled_departures(stop, _ROUTE_46A, None, None, _MONDAY)
+        assert len(results) > 0
 
 
 # ===========================================================================
