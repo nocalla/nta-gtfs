@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.1] - 2026-07-14
+
+### Fixed
+
+- `StaticGtfsClient.get_scheduled_departures`'s `route_id` parameter now
+  matches against the real GTFS `route_id` instead of `route_short_name`.
+  Previously, a caller passing the same value used to filter GTFS-RT
+  `TripDescriptor.route_id` got silently wrong results whenever a route's
+  `route_id` differed from its `route_short_name` — routes sharing a short
+  name across different real `route_id`s (e.g. Cork "220" vs Dublin "220")
+  could be conflated. `ScheduledDeparture.route_name` still returns the
+  short name for display (#24)
+
 ## [0.2.0] - 2026-07-12
 
 ### Added

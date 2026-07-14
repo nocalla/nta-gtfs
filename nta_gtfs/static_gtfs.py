@@ -32,8 +32,7 @@ class ScheduledDeparture(NamedTuple):
     Attributes:
         trip_id: GTFS trip identifier.
         departure_time: Scheduled departure time in ``HH:MM`` format.
-        route_name: Route short name; matches the ``route_id`` parameter passed
-            to ``get_scheduled_departures``.
+        route_name: Route short name (e.g. ``"46A"``), for display only.
     """
 
     trip_id: str
@@ -45,12 +44,16 @@ class _TripInfo(NamedTuple):
     """Parse-time join of a trip with its route.
 
     Attributes:
-        route_short_name: Route short name from ``routes.txt``.
+        route_id: Real GTFS route ID from ``routes.txt``, used as the
+            departure index match key.
+        route_short_name: Route short name from ``routes.txt``, used only for
+            display (``ScheduledDeparture.route_name``).
         direction_id: GTFS direction ID string (``"0"``/``"1"``, may be empty).
         service_id: GTFS service ID the trip runs under.
         agency_id: Agency ID from the route, or ``None`` when blank.
     """
 
+    route_id: str
     route_short_name: str
     direction_id: str
     service_id: str
@@ -117,7 +120,7 @@ class StaticGtfsClient:
         self._calendar: list[dict[str, str]] = []
         self._calendar_dates: list[dict[str, str]] = []
         self._departure_index: dict[
-            tuple[str, str], list[tuple[str, str, str, str | None]]
+            tuple[str, str], list[tuple[str, str, str, str | None, str]]
         ] = {}
 
     @property
@@ -237,14 +240,15 @@ class StaticGtfsClient:
     ) -> list[ScheduledDeparture]:
         """Return scheduled departures for a stop/route on a given date.
 
-        Looks up the pre-built departure index by ``(stop_id, route_short_name)``
-        and filters by active service IDs, optional direction, and optional
+        Looks up the pre-built departure index by ``(stop_id, route_id)`` and
+        filters by active service IDs, optional direction, and optional
         agency.
 
         Args:
             stop_id: GTFS stop ID to filter on.
-            route_id: Route short name (e.g. ``"46A"``) matched against
-                ``routes.route_short_name``.
+            route_id: Real GTFS route ID (e.g. ``"2 220 c b"``) matched
+                against ``routes.route_id`` — the same identifier used by
+                GTFS-RT ``TripDescriptor.route_id``.
             direction_id: GTFS direction filter (``0`` or ``1``); ``None``
                 means no direction filter is applied.
             operator_id: GTFS agency ID to filter on; ``None`` means no
@@ -274,7 +278,13 @@ class StaticGtfsClient:
         )
 
         results: list[ScheduledDeparture] = []
-        for trip_id, departure_time_raw, dep_direction_id, agency_id in candidates:
+        for (
+            trip_id,
+            departure_time_raw,
+            dep_direction_id,
+            agency_id,
+            route_short_name,
+        ) in candidates:
             service_id = self._trip_service_ids.get(trip_id)
             if service_id is None or service_id not in active_services:
                 continue
@@ -283,7 +293,7 @@ class StaticGtfsClient:
             if operator_id is not None and agency_id != operator_id:
                 continue
             time_hhmm = _normalise_time(departure_time_raw)
-            results.append(ScheduledDeparture(trip_id, time_hhmm, route_id))
+            results.append(ScheduledDeparture(trip_id, time_hhmm, route_short_name))
 
         results.sort(key=lambda t: t.departure_time)
         return results
@@ -311,7 +321,7 @@ def _parse_zip(
     dict[str, str],
     list[dict[str, str]],
     list[dict[str, str]],
-    dict[tuple[str, str], list[tuple[str, str, str, str | None]]],
+    dict[tuple[str, str], list[tuple[str, str, str, str | None, str]]],
 ]:
     """Extract a GTFS zip from a seekable file and build schedule lookups.
 
@@ -356,10 +366,12 @@ def _parse_zip(
             trip_id = row.get("trip_id")
             if trip_id is None:
                 continue
-            route_info = routes_by_id.get(row.get("route_id", ""))
+            route_id = row.get("route_id", "")
+            route_info = routes_by_id.get(route_id)
             if route_info is None:
                 continue
             trips_by_id[trip_id] = _TripInfo(
+                route_id=route_id,
                 route_short_name=route_info[0],
                 direction_id=row.get("direction_id", ""),
                 service_id=row.get("service_id", ""),
@@ -368,7 +380,7 @@ def _parse_zip(
         del routes_by_id
 
         departure_index: dict[
-            tuple[str, str], list[tuple[str, str, str, str | None]]
+            tuple[str, str], list[tuple[str, str, str, str | None, str]]
         ] = {}
 
         for st_row in _iter_csv(zf, "stop_times.txt"):
@@ -381,14 +393,13 @@ def _parse_zip(
             if trip_info is None:
                 continue
 
-            departure_index.setdefault(
-                (stop_id, trip_info.route_short_name), []
-            ).append(
+            departure_index.setdefault((stop_id, trip_info.route_id), []).append(
                 (
                     trip_id,
                     st_row.get("departure_time", ""),
                     trip_info.direction_id,
                     trip_info.agency_id,
+                    trip_info.route_short_name,
                 )
             )
 
@@ -396,7 +407,7 @@ def _parse_zip(
         trip_service_ids: dict[str, str] = {
             trip_id: trips_by_id[trip_id].service_id
             for candidates in departure_index.values()
-            for trip_id, _time, _direction, _agency in candidates
+            for trip_id, _time, _direction, _agency, _route_name in candidates
         }
         del trips_by_id
 

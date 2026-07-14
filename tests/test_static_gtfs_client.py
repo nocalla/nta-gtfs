@@ -76,13 +76,15 @@ def _make_gtfs_zip(
     Returns:
         Raw bytes of the assembled GTFS zip archive.
     """
-    routes_csv = f"route_id,route_short_name,agency_id\nR1,{_ROUTE_46A},{agency_id}\n"
+    routes_csv = (
+        f"route_id,route_short_name,agency_id\n{_ROUTE_46A},{_ROUTE_46A},{agency_id}\n"
+    )
 
     trips_csv = (
         "trip_id,route_id,service_id,direction_id\n"
-        f"T1,R1,{service_id},0\n"
-        f"T2,R1,{service_id},1\n"
-        f"T3,R1,{service_id},0\n"
+        f"T1,{_ROUTE_46A},{service_id},0\n"
+        f"T2,{_ROUTE_46A},{service_id},1\n"
+        f"T3,{_ROUTE_46A},{service_id},0\n"
     )
     if extra_trips:
         trips_csv += extra_trips
@@ -505,8 +507,14 @@ async def test_direction_filter_returns_only_matching_direction() -> None:
 
 
 async def test_operator_filter_returns_only_matching_agency() -> None:
-    """AC 18: operator_id filters to only trips from that agency."""
-    # Arrange — zip with two agencies for the same stop/route
+    """AC 18: operator_id filters to only trips from that agency.
+
+    ``_make_two_agency_zip`` models two distinct real routes (``R_BUS``,
+    ``R_RAIL``) that happen to share a ``route_short_name`` (46A) — queries
+    use the real ``route_id`` per AC for #24, and each route's single
+    operator is confirmed via the ``operator_id`` filter.
+    """
+    # Arrange — zip with two agencies for the same stop, different route_ids
     zip_bytes = _make_two_agency_zip()
     session = _make_session(status=200, body=zip_bytes)
     client = StaticGtfsClient(_DUMMY_URL, session)
@@ -514,13 +522,16 @@ async def test_operator_filter_returns_only_matching_agency() -> None:
 
     # Act
     results_bus = client.get_scheduled_departures(
-        _STOP_A, _ROUTE_46A, None, _AGENCY_BUS, _MONDAY
+        _STOP_A, "R_BUS", None, _AGENCY_BUS, _MONDAY
     )
     results_rail = client.get_scheduled_departures(
-        _STOP_A, _ROUTE_46A, None, _AGENCY_RAIL, _MONDAY
+        _STOP_A, "R_RAIL", None, _AGENCY_RAIL, _MONDAY
+    )
+    results_bus_wrong_agency = client.get_scheduled_departures(
+        _STOP_A, "R_BUS", None, _AGENCY_RAIL, _MONDAY
     )
     results_unknown = client.get_scheduled_departures(
-        _STOP_A, _ROUTE_46A, None, "UNKNOWN_AGENCY", _MONDAY
+        _STOP_A, "R_BUS", None, "UNKNOWN_AGENCY", _MONDAY
     )
 
     # Assert
@@ -529,6 +540,7 @@ async def test_operator_filter_returns_only_matching_agency() -> None:
     bus_ids = {r.trip_id for r in results_bus}
     rail_ids = {r.trip_id for r in results_rail}
     assert bus_ids.isdisjoint(rail_ids)
+    assert results_bus_wrong_agency == []
     assert results_unknown == []
 
 
@@ -720,7 +732,7 @@ async def test_calendar_dates_exception_type_2_removes_service() -> None:
 async def test_departure_time_25_30_00_normalises_to_01_30() -> None:
     """GTFS departure time 25:30:00 (post-midnight) normalises to 01:30."""
     # Arrange — extra trip with a post-midnight departure time
-    extra_trips = "T_LATE,R1,SVC1,0\n"
+    extra_trips = f"T_LATE,{_ROUTE_46A},SVC1,0\n"
     extra_stop_times = f"T_LATE,{_STOP_A},25:30:00,1\n"
 
     zip_bytes = _make_gtfs_zip(
@@ -749,12 +761,15 @@ async def test_results_sorted_ascending_by_departure_time() -> None:
     """get_scheduled_departures returns results sorted ascending by departure_time."""
     # Arrange — stop_times deliberately out of order: 09:00, 08:00, 10:00
     # Use a fresh zip with only the three explicit times for a clean sort test.
-    routes_csv = f"route_id,route_short_name,agency_id\nR1,{_ROUTE_46A},{_AGENCY_BUS}\n"
+    routes_csv = (
+        f"route_id,route_short_name,agency_id\n"
+        f"{_ROUTE_46A},{_ROUTE_46A},{_AGENCY_BUS}\n"
+    )
     trips_csv = (
         "trip_id,route_id,service_id,direction_id\n"
-        "TA,R1,SVC1,0\n"
-        "TB,R1,SVC1,0\n"
-        "TC,R1,SVC1,0\n"
+        f"TA,{_ROUTE_46A},SVC1,0\n"
+        f"TB,{_ROUTE_46A},SVC1,0\n"
+        f"TC,{_ROUTE_46A},SVC1,0\n"
     )
     stop_times_csv = (
         "trip_id,stop_id,departure_time,stop_sequence\n"
@@ -835,7 +850,7 @@ async def test_get_scheduled_departures_unknown_stop_returns_empty() -> None:
 
 
 async def test_get_scheduled_departures_unknown_route_returns_empty() -> None:
-    """get_scheduled_departures returns [] for a route_short_name not in the data."""
+    """get_scheduled_departures returns [] for a route_id not in the data."""
     # Arrange
     zip_bytes = _make_gtfs_zip()
     session = _make_session(status=200, body=zip_bytes)
@@ -1013,3 +1028,87 @@ async def test_scheduled_departure_route_name_is_str() -> None:
     results = client.get_scheduled_departures(_STOP_A, _ROUTE_46A, None, None, _MONDAY)
     assert len(results) > 0
     assert all(isinstance(r.route_name, str) for r in results)
+
+
+# ===========================================================================
+# Departure index keyed on real route_id, not route_short_name (issue #24)
+# ===========================================================================
+
+
+def _make_cork_dublin_zip() -> bytes:
+    """Build a GTFS zip with two "220" routes distinguished only by route_id.
+
+    Cork's "220" (``route_id`` ``"2 220 c b"``) and Dublin's "220"
+    (``route_id`` ``"3 220 d a"``) both share ``route_short_name`` "220" but
+    are unrelated real routes serving the same stop.
+
+    Returns:
+        Raw bytes of the assembled GTFS zip archive.
+    """
+    routes_csv = (
+        "route_id,route_short_name,agency_id\n"
+        "2 220 c b,220,BUS_EIREANN\n"
+        "3 220 d a,220,DUBLIN_BUS\n"
+    )
+    trips_csv = (
+        "trip_id,route_id,service_id,direction_id\n"
+        "T_CORK,2 220 c b,SVC1,0\n"
+        "T_DUBLIN,3 220 d a,SVC1,0\n"
+    )
+    stop_times_csv = (
+        "trip_id,stop_id,departure_time,stop_sequence\n"
+        f"T_CORK,{_STOP_A},09:00:00,1\n"
+        f"T_DUBLIN,{_STOP_A},10:00:00,1\n"
+    )
+    calendar_csv = (
+        "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+        "start_date,end_date\n"
+        "SVC1,1,1,1,1,1,1,1,20200101,20991231\n"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w") as zf:
+        zf.writestr("routes.txt", routes_csv)
+        zf.writestr("trips.txt", trips_csv)
+        zf.writestr("stop_times.txt", stop_times_csv)
+        zf.writestr("calendar.txt", calendar_csv)
+    return buf.getvalue()
+
+
+async def test_route_id_differing_from_short_name_matches_correctly() -> None:
+    """A route whose route_id differs from its route_short_name still matches."""
+    zip_bytes = _make_cork_dublin_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    results = client.get_scheduled_departures(_STOP_A, "2 220 c b", None, None, _MONDAY)
+
+    assert len(results) == 1
+    assert results[0].trip_id == "T_CORK"
+    assert results[0].route_name == "220"
+
+
+async def test_shared_route_short_name_does_not_conflate_route_ids() -> None:
+    """Two routes sharing a route_short_name but with different route_ids
+
+    (Cork "220" vs Dublin "220") must not be conflated in the departure
+    index or in operator/direction filtering.
+    """
+    zip_bytes = _make_cork_dublin_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    cork_results = client.get_scheduled_departures(
+        _STOP_A, "2 220 c b", None, None, _MONDAY
+    )
+    dublin_results = client.get_scheduled_departures(
+        _STOP_A, "3 220 d a", None, None, _MONDAY
+    )
+    unknown_results = client.get_scheduled_departures(
+        _STOP_A, "220", None, None, _MONDAY
+    )
+
+    assert {r.trip_id for r in cork_results} == {"T_CORK"}
+    assert {r.trip_id for r in dublin_results} == {"T_DUBLIN"}
+    assert unknown_results == []
