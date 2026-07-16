@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.4.0] - 2026-07-16
+
+### Added
+
+- `StaticGtfsPickerClient.async_get_termini(stop_id, route_id, direction_id) -> list[str]`,
+  for labelling a config-flow direction choice with its real terminus stop
+  name(s) instead of a raw `0`/`1` `direction_id`. Scoped to trips already
+  narrowed to a single stop, so both `stop_times.txt` passes it performs stay
+  small regardless of feed size; `route_id=None` merges termini across every
+  route serving the stop (the combined-routes case) (ha-tfi-live#125)
+
 ## [0.3.0] - 2026-07-14
 
 ### Added
