@@ -118,6 +118,7 @@ class StaticGtfsClient:
         self._departure_index: dict[
             tuple[str, str], list[tuple[str, str, str, str | None, str]]
         ] = {}
+        self._trip_stops: dict[str, list[tuple[int, str]]] = {}
 
     @property
     def available(self) -> bool:
@@ -168,6 +169,7 @@ class StaticGtfsClient:
                     calendar,
                     calendar_dates,
                     departure_index,
+                    trip_stops,
                 ) = await asyncio.to_thread(_parse_zip, tmp, self._stop_ids)
             except StaticGtfsLoadError:
                 raise
@@ -180,6 +182,7 @@ class StaticGtfsClient:
         self._calendar = calendar
         self._calendar_dates = calendar_dates
         self._departure_index = departure_index
+        self._trip_stops = trip_stops
         self._available = True
         self._loaded_at = datetime.now(UTC)
 
@@ -299,6 +302,21 @@ class StaticGtfsClient:
             return False
         return (stop_id, route_id) in self._departure_index
 
+    def get_trip_stops(self, trip_id: str) -> list[tuple[int, str]]:
+        """Return a trip's full stop pattern, ordered by stop sequence.
+
+        Args:
+            trip_id: GTFS trip ID to look up.
+
+        Returns:
+            List of ``(stop_sequence, stop_id)`` pairs sorted ascending by
+            ``stop_sequence``. Empty list if the trip is unknown or when
+            ``available`` is ``False``.
+        """
+        if not self._available:
+            return []
+        return self._trip_stops.get(trip_id, [])
+
 
 def _parse_zip(
     fileobj: IO[bytes],
@@ -308,6 +326,7 @@ def _parse_zip(
     list[dict[str, str]],
     list[dict[str, str]],
     dict[tuple[str, str], list[tuple[str, str, str, str | None, str]]],
+    dict[str, list[tuple[int, str]]],
 ]:
     """Extract a GTFS zip from a seekable file and build schedule lookups.
 
@@ -315,16 +334,21 @@ def _parse_zip(
     and optionally ``calendar_dates.txt`` from the zip, streaming each file
     row-by-row so no CSV is ever fully materialised in memory.  Only trips
     referenced by the departure index are retained in the returned service-ID
-    lookup.
+    lookup.  ``stop_times.txt`` is streamed twice from the same seekable zip:
+    once to build the stop-filtered departure index, and again to build each
+    relevant trip's full stop pattern for ``get_trip_stops`` (needed because
+    a trip's pattern includes stops outside ``stop_filter``, which the first
+    pass discards).
 
     Args:
         fileobj: Seekable binary file object containing the GTFS zip archive.
         stop_filter: When not ``None``, only ``stop_times.txt`` rows whose
-            ``stop_id`` is in this set are indexed.
+            ``stop_id`` is in this set are indexed, and only trips that
+            passed that filter get a stop pattern recorded.
 
     Returns:
-        A four-tuple of
-        ``(trip_service_ids, calendar, calendar_dates, departure_index)``.
+        A five-tuple of ``(trip_service_ids, calendar, calendar_dates,
+        departure_index, trip_stops)``.
 
     Raises:
         StaticGtfsLoadError: If a required file is missing from the zip or a
@@ -390,12 +414,30 @@ def _parse_zip(
             )
 
         # Retain service IDs only for trips that made it into the index.
-        trip_service_ids: dict[str, str] = {
-            trip_id: trips_by_id[trip_id].service_id
+        relevant_trip_ids: set[str] = {
+            trip_id
             for candidates in departure_index.values()
             for trip_id, _time, _direction, _agency, _route_name in candidates
         }
+        trip_service_ids: dict[str, str] = {
+            trip_id: trips_by_id[trip_id].service_id for trip_id in relevant_trip_ids
+        }
         del trips_by_id
+
+        # Second pass: each relevant trip's full stop pattern, including
+        # stops outside stop_filter that the first pass discarded.
+        trip_stops: dict[str, list[tuple[int, str]]] = {}
+        for st_row in iter_csv(zf, "stop_times.txt"):
+            trip_id = st_row.get("trip_id", "")
+            if stop_filter is not None and trip_id not in relevant_trip_ids:
+                continue
+            try:
+                seq = int(st_row.get("stop_sequence", ""))
+            except ValueError:
+                continue
+            trip_stops.setdefault(trip_id, []).append((seq, st_row.get("stop_id", "")))
+        for stops in trip_stops.values():
+            stops.sort(key=lambda pair: pair[0])
 
         calendar_rows = list(iter_csv(zf, "calendar.txt"))
         calendar_dates_rows = (
@@ -409,6 +451,7 @@ def _parse_zip(
         calendar_rows,
         calendar_dates_rows,
         departure_index,
+        trip_stops,
     )
 
 

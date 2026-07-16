@@ -1218,3 +1218,72 @@ async def test_has_scheduled_pair_returns_false_when_unloaded() -> None:
     client = StaticGtfsClient(_DUMMY_URL, session)
 
     assert client.has_scheduled_pair(_STOP_A, _ROUTE_46A) is False
+
+
+# ===========================================================================
+# get_trip_stops (issue #27)
+# ===========================================================================
+
+
+async def test_get_trip_stops_returns_full_pattern_ordered_by_sequence() -> None:
+    """A known trip returns its stops as (stop_sequence, stop_id) pairs, ordered."""
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    assert client.get_trip_stops("T1") == [(1, _STOP_A), (2, _STOP_B)]
+
+
+async def test_get_trip_stops_unknown_trip_returns_empty() -> None:
+    """An unknown trip_id returns an empty list."""
+    zip_bytes = _make_gtfs_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    assert client.get_trip_stops("NOT_A_TRIP") == []
+
+
+async def test_get_trip_stops_returns_empty_when_unloaded() -> None:
+    """An unloaded client (available=False) returns an empty list."""
+    session = _make_session(status=200, body=b"")
+    client = StaticGtfsClient(_DUMMY_URL, session)
+
+    assert client.get_trip_stops("T1") == []
+
+
+async def test_get_trip_stops_includes_stops_outside_stop_filter() -> None:
+    """A stop-filtered trip's full pattern still includes stops outside the filter.
+
+    Proves the two-pass approach: get_scheduled_departures with stop_ids
+    filtering only indexes the configured stop, but get_trip_stops must still
+    return the trip's complete pattern, including stops the filter dropped.
+    """
+    zip_bytes = _make_gtfs_zip(extra_stop_times="T1,STOP_C,09:30:00,3\n")
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session, stop_ids={_STOP_A})
+    await client.async_load()
+
+    assert client.get_trip_stops("T1") == [
+        (1, _STOP_A),
+        (2, _STOP_B),
+        (3, "STOP_C"),
+    ]
+
+
+async def test_get_trip_stops_excludes_trips_never_touching_filtered_stop() -> None:
+    """A trip that never touches a stop_ids-filtered stop gets no stored pattern.
+
+    Proves the memory constraint: only trips relevant to the configured
+    stop_ids get a stop pattern retained when stop_ids is set.
+    """
+    zip_bytes = _make_gtfs_zip(
+        extra_trips=f"T4,{_ROUTE_46A},SVC1,0\n",
+        extra_stop_times="T4,STOP_C,11:00:00,1\n",
+    )
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsClient(_DUMMY_URL, session, stop_ids={_STOP_A})
+    await client.async_load()
+
+    assert client.get_trip_stops("T4") == []
