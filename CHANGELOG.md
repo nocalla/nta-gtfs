@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.1] - 2026-07-19
+
+### Fixed
+
+- `download_zip_to_tempfile` now verifies the streamed byte count against
+  `Content-Length` and raises `StaticGtfsLoadError` on a mismatch, instead of
+  silently returning a truncated temp file when a connection drops or stalls
+  mid-download. Previously this surfaced later as a generic zlib
+  decompression error at parse time (#39)
+
 ## [0.6.0] - 2026-07-19
 
 ### Changed
