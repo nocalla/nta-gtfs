@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.2] - 2026-07-19
+
+### Fixed
+
+- `StaticGtfsPickerClient` now serialises all reads against its cached
+  archive file object behind an `asyncio.Lock`. Concurrent
+  `async_get_routes_for_stop`/`async_get_termini` calls (e.g. via
+  `asyncio.gather`) previously ran their `asyncio.to_thread` workers against
+  the same underlying file object from multiple OS threads at once, which
+  tore apart `zipfile`'s internal `seek`/`read` sequencing and surfaced as
+  nondeterministic `Bad CRC-32` / zlib decompression errors under
+  concurrent use (#40)
+
 ## [0.6.1] - 2026-07-19
 
 ### Fixed

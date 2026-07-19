@@ -4,7 +4,10 @@ All GTFS data is built as in-memory zip bytes and no live HTTP calls are
 made; the client itself spools downloads to an anonymous temporary file.
 """
 
+import asyncio
 import io
+import threading
+import time
 import zipfile
 from collections.abc import AsyncIterator, Iterator
 from unittest.mock import AsyncMock, MagicMock
@@ -529,3 +532,55 @@ async def test_async_close_releases_archive() -> None:
 
     with pytest.raises(StaticGtfsLoadError):
         await client.async_get_routes_for_stop("S1")
+
+
+# ===========================================================================
+# Concurrent archive access (#40)
+# ===========================================================================
+
+
+async def test_concurrent_gather_calls_never_overlap_archive_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """asyncio.gather across routes+termini calls never reads the archive concurrently.
+
+    Regression test for #40: three concurrent asyncio.to_thread workers
+    seeking/reading the same underlying file object corrupted each other's
+    reads. Wraps iter_csv with a short sleep and an active-call counter to
+    detect any overlap; the archive lock added in gtfs_picker.py should keep
+    the observed max concurrency at 1 regardless of gather's interleaving.
+    """
+    max_concurrent = 0
+    active = 0
+    active_lock = threading.Lock()
+    real_iter_csv = gtfs_picker.iter_csv
+
+    def _slow_iter_csv(zf: zipfile.ZipFile, filename: str) -> Iterator[dict[str, str]]:
+        nonlocal max_concurrent, active
+        with active_lock:
+            active += 1
+            max_concurrent = max(max_concurrent, active)
+        try:
+            rows = list(real_iter_csv(zf, filename))
+            time.sleep(0.01)
+            yield from rows
+        finally:
+            with active_lock:
+                active -= 1
+
+    monkeypatch.setattr(gtfs_picker, "iter_csv", _slow_iter_csv)
+    zip_bytes = _make_termini_zip()
+    session = _make_session(status=200, body=zip_bytes)
+    client = StaticGtfsPickerClient(_DUMMY_URL, session)
+    await client.async_load()
+
+    routes_result, termini_0, termini_1 = await asyncio.gather(
+        client.async_get_routes_for_stop("S1"),
+        client.async_get_termini("S1", None, 0),
+        client.async_get_termini("S1", None, 1),
+    )
+
+    assert max_concurrent == 1
+    assert routes_result
+    assert termini_0
+    assert termini_1

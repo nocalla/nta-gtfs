@@ -68,6 +68,11 @@ class StaticGtfsPickerClient:
     class has no staleness tracking or ``stop_ids`` filter. The caller
     supplies an ``aiohttp.ClientSession``; this class never creates its own.
     Call ``async_close`` once finished to release the cached archive.
+
+    Concurrent calls to ``async_get_routes_for_stop``/``async_get_termini``
+    (e.g. via ``asyncio.gather``) are safe: archive reads are serialised
+    internally via an ``asyncio.Lock`` since the underlying file object
+    cannot tolerate concurrent ``seek``/``read`` from multiple threads (#40).
     """
 
     def __init__(
@@ -100,6 +105,7 @@ class StaticGtfsPickerClient:
                 f"static_gtfs_url must use HTTPS; got: {static_gtfs_url!r}"
             )
         self._archive: IO[bytes] | None = None
+        self._archive_lock = asyncio.Lock()
         self._stops: list[Stop] = []
         self._routes: list[Route] = []
         self._available: bool = False
@@ -173,13 +179,23 @@ class StaticGtfsPickerClient:
         """Build ``self._trip_index`` from ``trips.txt`` if not already built.
 
         No-op once ``self._trip_index`` is populated; reused for the rest of
-        the instance's lifetime.
+        the instance's lifetime. Serialised via ``self._archive_lock`` since
+        the cached archive's underlying file object is not safe to
+        ``seek``/``read`` from multiple threads concurrently (#40).
         """
         if self._trip_index is None:
-            self._trip_index = await asyncio.to_thread(_build_trip_index, self._archive)
+            async with self._archive_lock:
+                if self._trip_index is None:
+                    self._trip_index = await asyncio.to_thread(
+                        _build_trip_index, self._archive
+                    )
 
     async def _ensure_stop_cache(self, stop_id: str) -> _StopCache:
         """Return the ``_StopCache`` entry for ``stop_id``, building it if new.
+
+        Serialised via ``self._archive_lock`` since the cached archive's
+        underlying file object is not safe to ``seek``/``read`` from
+        multiple threads concurrently (#40).
 
         Args:
             stop_id: GTFS stop ID to fetch or build a cache entry for.
@@ -189,11 +205,14 @@ class StaticGtfsPickerClient:
         """
         entry = self._stop_cache.get(stop_id)
         if entry is None:
-            candidate_trip_ids = await asyncio.to_thread(
-                _candidate_trip_ids_for_stop, self._archive, stop_id
-            )
-            entry = _StopCache(candidate_trip_ids=candidate_trip_ids)
-            self._stop_cache[stop_id] = entry
+            async with self._archive_lock:
+                entry = self._stop_cache.get(stop_id)
+                if entry is None:
+                    candidate_trip_ids = await asyncio.to_thread(
+                        _candidate_trip_ids_for_stop, self._archive, stop_id
+                    )
+                    entry = _StopCache(candidate_trip_ids=candidate_trip_ids)
+                    self._stop_cache[stop_id] = entry
         return entry
 
     async def async_get_routes_for_stop(self, stop_id: str) -> list[Route]:
@@ -281,11 +300,13 @@ class StaticGtfsPickerClient:
             await self._ensure_trip_index()
             entry = await self._ensure_stop_cache(stop_id)
             if entry.terminus_by_trip is None:
-                entry.terminus_by_trip = await asyncio.to_thread(
-                    _terminus_by_trip_for_candidates,
-                    self._archive,
-                    entry.candidate_trip_ids,
-                )
+                async with self._archive_lock:
+                    if entry.terminus_by_trip is None:
+                        entry.terminus_by_trip = await asyncio.to_thread(
+                            _terminus_by_trip_for_candidates,
+                            self._archive,
+                            entry.candidate_trip_ids,
+                        )
         except Exception as exc:
             raise StaticGtfsLoadError(
                 f"Static GTFS termini lookup error: {exc}"
