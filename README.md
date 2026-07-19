@@ -1,5 +1,12 @@
 # nta-gtfs
 
+[![CI](https://github.com/nocalla/nta-gtfs/actions/workflows/ci.yml/badge.svg)](https://github.com/nocalla/nta-gtfs/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/nta-gtfs?color=blue)](https://pypi.org/project/nta-gtfs/)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/nocalla/nta-gtfs/blob/main/LICENSE)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nocalla/nta-gtfs/main/.github/badges/coverage.json)](https://github.com/nocalla/nta-gtfs/actions/workflows/ci.yml)
+[![Python: 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://github.com/nocalla/nta-gtfs/blob/main/pyproject.toml)
+[![Open Issues](https://img.shields.io/github/issues/nocalla/nta-gtfs)](https://github.com/nocalla/nta-gtfs/issues)
+
 Async Python client for the Irish National Transport Authority (NTA) GTFS feeds.
 
 ## What it does
