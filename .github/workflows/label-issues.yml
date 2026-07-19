@@ -1,0 +1,49 @@
+name: Auto-label issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    name: Apply content-based labels
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Classify and label issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const rules = [
+              { label: "bug", pattern: /\b(bug|error|crash|exception|traceback|fails?|failing|broken|regression)\b/i },
+              { label: "documentation", pattern: /\b(docs?|documentation|readme|docstring|changelog)\b/i },
+              { label: "enhancement", pattern: /\b(feature|enhancement|support for|would be (nice|great)|add .*support|please add)\b/i },
+              { label: "question", pattern: /\b(question|how do i|how can i|is it possible|wondering)\b/i },
+            ];
+            const triageStates = ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"];
+
+            const issue = context.payload.issue;
+            const text = `${issue.title}\n${issue.body ?? ""}`;
+            const existing = new Set(issue.labels.map((l) => l.name));
+
+            const toAdd = rules
+              .filter((rule) => rule.pattern.test(text))
+              .map((rule) => rule.label)
+              .filter((label) => !existing.has(label));
+
+            const alreadyTriaged = triageStates.some((label) => existing.has(label));
+            if (!alreadyTriaged) {
+              toAdd.push("needs-triage");
+            }
+
+            if (toAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: toAdd,
+              });
+            }
