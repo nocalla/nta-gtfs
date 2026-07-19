@@ -70,6 +70,11 @@ async def download_zip_to_tempfile(
                             f"exceeds limit of {max_download_bytes} bytes"
                         )
                     await asyncio.to_thread(tmp.write, chunk)
+                if content_length is not None and received != content_length:
+                    raise StaticGtfsLoadError(
+                        f"Static GTFS download truncated: received {received} bytes, "
+                        f"expected {content_length} bytes from {url}"
+                    )
         except aiohttp.ClientError as exc:
             raise StaticGtfsLoadError(
                 f"Static GTFS download error for {url}: {exc}"
