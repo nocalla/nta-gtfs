@@ -159,6 +159,10 @@ static GTFS zip changes infrequently; the default `refresh_hours=24` is well
 within fair usage, and you should avoid re-downloading it more often than
 needed.
 
+## Used by
+
+- [ha-tfi-live](https://github.com/nocalla/ha-tfi-live) — a Home Assistant custom integration for live Irish public transport departures.
+
 ## Requirements
 
 - Python 3.12 or later
