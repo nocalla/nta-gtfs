@@ -1,6 +1,6 @@
 name: Bug report
 description: Something in nta-gtfs isn't behaving as expected.
-labels: ["needs-triage"]
+labels: ["bug", "needs-triage"]
 body:
   - type: textarea
     id: description

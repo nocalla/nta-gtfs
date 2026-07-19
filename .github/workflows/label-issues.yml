@@ -23,16 +23,27 @@ jobs:
               { label: "enhancement", pattern: /\b(feature|enhancement|support for|would be (nice|great)|add .*support|please add)\b/i },
               { label: "question", pattern: /\b(question|how do i|how can i|is it possible|wondering)\b/i },
             ];
+            // Issue-form submissions (bug_report.yml, feature_request.yml) already carry
+            // their type label from the template's own `labels:` field. Body text on this
+            // repo is often spec/task language (e.g. "error semantics", "docstring",
+            // "regression tests") that coincidentally matches these patterns despite having
+            // nothing to do with a bug or docs, so classification only ever looks at the
+            // title, and is skipped completely once a human or template has already picked
+            // a type label.
+            const typeLabels = ["bug", "documentation", "enhancement", "question"];
             const triageStates = ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"];
 
             const issue = context.payload.issue;
-            const text = `${issue.title}\n${issue.body ?? ""}`;
+            const text = issue.title;
             const existing = new Set(issue.labels.map((l) => l.name));
+            const alreadyTyped = typeLabels.some((label) => existing.has(label));
 
-            const toAdd = rules
-              .filter((rule) => rule.pattern.test(text))
-              .map((rule) => rule.label)
-              .filter((label) => !existing.has(label));
+            const toAdd = alreadyTyped
+              ? []
+              : rules
+                  .filter((rule) => rule.pattern.test(text))
+                  .map((rule) => rule.label)
+                  .filter((label) => !existing.has(label));
 
             const alreadyTriaged = triageStates.some((label) => existing.has(label));
             if (!alreadyTriaged) {
